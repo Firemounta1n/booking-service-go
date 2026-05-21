@@ -51,6 +51,11 @@ const (
 const (
 	QueueSuffixBookingJobConfirmed = "booking-job.confirmed"
 	QueueSuffixBookingJobDenied    = "booking-job.denied"
+	// QueueSuffixCancelBookingJobDLQ -- очередь, в которую RabbitMQ (через x-dead-letter-exchange
+	// на стороне Catalog'а) пересылает не обработанные сообщения CancelBookingJobByRequestIdRequest.
+	// Подписка по родному routing key команды отмены: в DLQ попадает исходный payload,
+	// а не отдельное событие.
+	QueueSuffixCancelBookingJobDLQ = "catalog.cancel-booking-job.dlq"
 )
 
 // Routing keys и типы для исходящих команд в Catalog (publisher side, Rebus convention).

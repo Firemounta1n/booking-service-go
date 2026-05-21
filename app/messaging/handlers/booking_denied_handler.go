@@ -43,11 +43,11 @@ func (h *BookingDeniedHandler) Handle(ctx context.Context, body []byte) error {
 		zap.String("reason", event.Reason),
 	)
 
-	if err := h.service.Cancel(ctx, bookingID); err != nil {
-		return fmt.Errorf("отмена бронирования %d: %w", bookingID, err)
+	if err := h.service.MarkRejected(ctx, bookingID); err != nil {
+		return fmt.Errorf("отметка отклонения бронирования %d: %w", bookingID, err)
 	}
 
-	h.logger.Info("бронирование отменено через событие",
+	h.logger.Info("бронирование отклонено через событие",
 		zap.Int64("bookingId", bookingID),
 		zap.String("reason", event.Reason),
 	)
