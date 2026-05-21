@@ -41,27 +41,21 @@ type BookingJobDenied struct {
 	Reason    string `json:"Reason"`
 }
 
-// CancelBookingJobFailed -- сигнал, что команда CancelBookingJobByRequestIdRequest
-// не была обработана Catalog'ом (попала в DLQ или вернулась с ошибкой).
-// Используется обработчиком, выполняющим rollback статуса cancellation_pending.
-type CancelBookingJobFailed struct {
-	EventId   string `json:"EventId"`
-	RequestId string `json:"RequestId"` // BookingID в формате UUID
-	Reason    string `json:"Reason"`
-}
-
 // Routing keys для входящих событий от Catalog (consumer side, Rebus convention).
 const (
-	RoutingKeyBookingJobConfirmed    = "BookingService.Catalog.Async.Api.Contracts.Events.BookingJobConfirmed, BookingService.Catalog.Async.Api.Contracts"
-	RoutingKeyBookingJobDenied       = "BookingService.Catalog.Async.Api.Contracts.Events.BookingJobDenied, BookingService.Catalog.Async.Api.Contracts"
-	RoutingKeyCancelBookingJobFailed = "BookingService.Catalog.Async.Api.Contracts.Events.CancelBookingJobFailed, BookingService.Catalog.Async.Api.Contracts"
+	RoutingKeyBookingJobConfirmed = "BookingService.Catalog.Async.Api.Contracts.Events.BookingJobConfirmed, BookingService.Catalog.Async.Api.Contracts"
+	RoutingKeyBookingJobDenied    = "BookingService.Catalog.Async.Api.Contracts.Events.BookingJobDenied, BookingService.Catalog.Async.Api.Contracts"
 )
 
 // QueueSuffixes для входящих событий — читаемые имена суффиксов очередей.
 const (
-	QueueSuffixBookingJobConfirmed    = "booking-job.confirmed"
-	QueueSuffixBookingJobDenied       = "booking-job.denied"
-	QueueSuffixCancelBookingJobFailed = "booking-job.cancel-failed"
+	QueueSuffixBookingJobConfirmed = "booking-job.confirmed"
+	QueueSuffixBookingJobDenied    = "booking-job.denied"
+	// QueueSuffixCancelBookingJobDLQ -- очередь, в которую RabbitMQ (через x-dead-letter-exchange
+	// на стороне Catalog'а) пересылает не обработанные сообщения CancelBookingJobByRequestIdRequest.
+	// Подписка по родному routing key команды отмены: в DLQ попадает исходный payload,
+	// а не отдельное событие.
+	QueueSuffixCancelBookingJobDLQ = "catalog.cancel-booking-job.dlq"
 )
 
 // Routing keys и типы для исходящих команд в Catalog (publisher side, Rebus convention).

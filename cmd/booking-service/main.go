@@ -90,7 +90,10 @@ func main() {
 	consumer := messaging.NewConsumer(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.QueuePrefix, logger)
 	consumer.Subscribe(messaging.QueueSuffixBookingJobConfirmed, messaging.RoutingKeyBookingJobConfirmed, confirmedHandler.Handle)
 	consumer.Subscribe(messaging.QueueSuffixBookingJobDenied, messaging.RoutingKeyBookingJobDenied, deniedHandler.Handle)
-	consumer.Subscribe(messaging.QueueSuffixCancelBookingJobFailed, messaging.RoutingKeyCancelBookingJobFailed, cancelErrorHandler.Handle)
+	// DLQ-подписка: rollback запускается по сообщениям CancelBookingJobByRequestIdRequest,
+	// которые Catalog не смог обработать (RabbitMQ перенаправил их в dead-letter-queue
+	// через x-dead-letter-exchange). Routing key совпадает с routing key исходной команды.
+	consumer.Subscribe(messaging.QueueSuffixCancelBookingJobDLQ, messaging.RoutingKeyCancelBookingJob, cancelErrorHandler.Handle)
 
 	if err := consumer.Start(ctx); err != nil {
 		logger.Error("не удалось запустить consumer", zap.Error(err))

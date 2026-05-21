@@ -7,14 +7,15 @@ import (
 
 	"go.uber.org/zap"
 
+	"booking-service/app/messaging"
 	"booking-service/app/service"
 )
 
-// CancelBookingErrorHandler обрабатывает сообщения о провале команды отмены booking job:
-// событие CancelBookingJobFailed либо сообщения, попавшие в DLQ.
+// CancelBookingErrorHandler обрабатывает сообщения CancelBookingJobByRequestIdRequest,
+// перенаправленные RabbitMQ в dead-letter-queue после исчерпания попыток на стороне Catalog.
 //
-// В обоих случаях handler инициирует rollback бронирования: возвращает booking
-// из промежуточного статуса cancellation_pending в исходный статус.
+// Handler инициирует компенсацию: возвращает booking из промежуточного статуса
+// cancellation_pending в исходный статус, чтобы не было рассинхронизации с Catalog.
 type CancelBookingErrorHandler struct {
 	service *service.BookingsService
 	logger  *zap.Logger
@@ -28,40 +29,23 @@ func NewCancelBookingErrorHandler(svc *service.BookingsService, logger *zap.Logg
 	}
 }
 
-// Handle десериализует входящее сообщение, извлекает RequestId и делегирует
-// откат сервису. Поддерживает как явное событие CancelBookingJobFailed, так
-// и исходное CancelBookingJobCommand из DLQ -- у обоих структура содержит RequestId.
+// Handle десериализует исходную команду из DLQ и делегирует rollback сервису.
 func (h *CancelBookingErrorHandler) Handle(ctx context.Context, body []byte) error {
-	requestID, reason, err := parseCancelErrorPayload(body)
-	if err != nil {
-		return fmt.Errorf("разбор сообщения об ошибке отмены: %w", err)
+	var cmd messaging.CancelBookingJobCommand
+	if err := json.Unmarshal(body, &cmd); err != nil {
+		return fmt.Errorf("десериализация CancelBookingJobCommand из DLQ: %w", err)
+	}
+	if cmd.RequestId == "" {
+		return fmt.Errorf("пустой RequestId в сообщении DLQ")
 	}
 
-	h.logger.Warn("получен сигнал об ошибке отмены booking job",
-		zap.String("requestId", requestID),
-		zap.String("reason", reason),
+	h.logger.Warn("получено сообщение CancelBookingJob из DLQ -- запускаем rollback",
+		zap.String("requestId", cmd.RequestId),
 	)
 
-	if err := h.service.HandleCancelError(ctx, requestID); err != nil {
-		return fmt.Errorf("rollback отмены бронирования (requestId=%s): %w", requestID, err)
+	if err := h.service.HandleCancelError(ctx, cmd.RequestId); err != nil {
+		return fmt.Errorf("rollback отмены бронирования (requestId=%s): %w", cmd.RequestId, err)
 	}
 
 	return nil
-}
-
-// parseCancelErrorPayload пытается извлечь RequestId и причину из тела сообщения.
-// Поддерживает оба формата: событие CancelBookingJobFailed (с полем Reason)
-// и исходную команду CancelBookingJobCommand из DLQ (без Reason).
-func parseCancelErrorPayload(body []byte) (requestID, reason string, err error) {
-	var payload struct {
-		RequestId string `json:"RequestId"`
-		Reason    string `json:"Reason"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", "", err
-	}
-	if payload.RequestId == "" {
-		return "", "", fmt.Errorf("пустой RequestId в сообщении об ошибке отмены")
-	}
-	return payload.RequestId, payload.Reason, nil
 }

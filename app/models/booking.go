@@ -145,11 +145,12 @@ func (b *Booking) MarkRejected() error {
 // RollbackCancellation возвращает бронирование в статус, который был до StartCancellation.
 // Вызывается, когда Catalog не смог обработать команду отмены (DLQ / ошибка).
 func (b *Booking) RollbackCancellation() error {
-	if b.status != BookingStatusCancellationPending {
+	if b.status != BookingStatusCancellationPending || b.previousStatus == nil {
 		return ErrInvalidStatusTransition
 	}
 	b.status = *b.previousStatus
 	b.previousStatus = nil
+	b.cancellationRequestedAt = nil
 	return nil
 }
 

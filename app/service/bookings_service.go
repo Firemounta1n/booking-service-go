@@ -117,6 +117,22 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		RequestId: messaging.BookingIDToRequestID(id),
 	}); err != nil {
 		s.logger.Error("ошибка публикации CancelBookingJob", zap.Error(err), zap.Int64("bookingId", id))
+		// Команда не опубликована -- сразу откатываем, чтобы не оставлять booking
+		// в неконсистентном статусе cancellation_pending без шансов на обработку.
+		if rollbackErr := booking.RollbackCancellation(); rollbackErr != nil {
+			s.logger.Error("ошибка отката статуса cancellation_pending",
+				zap.Error(rollbackErr),
+				zap.Int64("bookingId", id),
+			)
+			return err
+		}
+		if updateErr := s.repo.Update(ctx, booking); updateErr != nil {
+			s.logger.Error("ошибка сохранения отката cancellation_pending",
+				zap.Error(updateErr),
+				zap.Int64("bookingId", id),
+			)
+		}
+		return err
 	}
 
 	return nil
