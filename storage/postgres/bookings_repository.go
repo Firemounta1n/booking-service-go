@@ -52,10 +52,18 @@ func (r *BookingsRepository) GetByID(ctx context.Context, id int64) (*models.Boo
 	return booking, nil
 }
 
-// Update обновляет статус бронирования.
+// Update обновляет статус и связанные с отменой поля бронирования.
 func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking) error {
+	var previousStatus *string
+	if ps := booking.PreviousStatus(); ps != nil {
+		s := string(*ps)
+		previousStatus = &s
+	}
+
 	tag, err := r.pool.Exec(ctx, queryUpdateBookingStatus,
 		string(booking.Status()),
+		previousStatus,
+		booking.CancellationRequestedAt(),
 		booking.ID(),
 	)
 	if err != nil {
@@ -138,39 +146,68 @@ func (r *BookingsRepository) GetAwaitingConfirmation(ctx context.Context, limit 
 // scanBooking сканирует одну строку в доменный объект Booking.
 func (r *BookingsRepository) scanBooking(row pgx.Row) (*models.Booking, error) {
 	var (
-		id         int64
-		status     string
-		userID     int64
-		resourceID int64
-		startDate  time.Time
-		endDate    time.Time
-		createdAt  time.Time
+		id                      int64
+		status                  string
+		userID                  int64
+		resourceID              int64
+		startDate               time.Time
+		endDate                 time.Time
+		createdAt               time.Time
+		previousStatus          *string
+		cancellationRequestedAt *time.Time
 	)
 
-	err := row.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt)
+	err := row.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt,
+		&previousStatus, &cancellationRequestedAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return models.RestoreBooking(id, models.BookingStatus(status), userID, resourceID, startDate, endDate, createdAt), nil
+	return models.RestoreBooking(
+		id,
+		models.BookingStatus(status),
+		userID, resourceID,
+		startDate, endDate, createdAt,
+		toBookingStatus(previousStatus),
+		cancellationRequestedAt,
+	), nil
 }
 
 // scanBookingFromRows сканирует строку из pgx.Rows.
 func (r *BookingsRepository) scanBookingFromRows(rows pgx.Rows) (*models.Booking, error) {
 	var (
-		id         int64
-		status     string
-		userID     int64
-		resourceID int64
-		startDate  time.Time
-		endDate    time.Time
-		createdAt  time.Time
+		id                      int64
+		status                  string
+		userID                  int64
+		resourceID              int64
+		startDate               time.Time
+		endDate                 time.Time
+		createdAt               time.Time
+		previousStatus          *string
+		cancellationRequestedAt *time.Time
 	)
 
-	err := rows.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt)
+	err := rows.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt,
+		&previousStatus, &cancellationRequestedAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return models.RestoreBooking(id, models.BookingStatus(status), userID, resourceID, startDate, endDate, createdAt), nil
+	return models.RestoreBooking(
+		id,
+		models.BookingStatus(status),
+		userID, resourceID,
+		startDate, endDate, createdAt,
+		toBookingStatus(previousStatus),
+		cancellationRequestedAt,
+	), nil
+}
+
+// toBookingStatus конвертирует nullable VARCHAR-значение БД в *models.BookingStatus.
+func toBookingStatus(s *string) *models.BookingStatus {
+	if s == nil {
+		return nil
+	}
+	status := models.BookingStatus(*s)
+	return &status
 }
